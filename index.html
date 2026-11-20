@@ -119,9 +119,39 @@ ol.steps li{margin:8px 0 8px 20px}
 
 <!-- ============ VIDEO ============ -->
 <section id="tab-video">
-<h2>Rakit Video 9:16</h2>
-<div class="note">Video dirakit <b>di browsermu</b> (canvas + MediaRecorder, 720×1280). Gambar diberi efek zoom/pan halus + teks di tiap adegan. Opsi narasi: unggah file audio atau rekam suaramu. Prosesnya real-time: video 48 detik butuh waktu rakit ±48 detik.</div>
+<h2>Video AI Beneran + Rakit Video 9:16</h2>
 <div class="card">
+<h3>✨ Video AI Beneran — gambar jadi bergerak sungguhan</h3>
+<p class="mut">Fitur ini memanggil layanan AI video gratis (LTX di Hugging Face) langsung dari browsermu: gambarmu diubah jadi klip bergerak nyata (±2–5 detik), bukan zoom/pan. Butuh internet, prosesnya ±30–90 detik, dan ada kuota gratis harian dari layanannya — kalau kuota habis, coba lagi besok.</p>
+<label>Mode</label>
+<select id="ai-mode" onchange="aiModeChange()">
+<option value="image-to-video">🖼️ Gambar → Video (gambar dari galeri jadi bergerak)</option>
+<option value="text-to-video">✍️ Teks → Video (tulis prompt, AI bikin videonya)</option>
+</select>
+<div id="ai-img-wrap">
+<label>Pilih gambar (klik satu)</label>
+<div class="grid" id="ai-picker"></div>
+<label>atau unggah gambar langsung</label>
+<input type="file" id="ai-upload" accept="image/*">
+</div>
+<label>Prompt gerakan (bahasa Inggris hasilnya lebih bagus)</label>
+<textarea id="ai-prompt" placeholder="cth: the cat slowly turns its head and blinks, gentle camera push-in, cinematic light"></textarea>
+<div>
+<button class="btn2" onclick="aiExample('the subject starts to move naturally, smooth motion, cinematic camera push-in')">▶ Bergerak natural</button>
+<button class="btn2" onclick="aiExample('the subject flies up into the sky with sparkling magic dust, dreamy cinematic motion')">🪄 Terbang + magic</button>
+<button class="btn2" onclick="aiExample('gentle wind blowing, leaves and hair moving softly, calm cinematic mood')">🍃 Angin lembut</button>
+<button class="btn2" onclick="aiExample('the subject walks forward confidently, camera follows from the side, realistic motion')">🚶 Berjalan</button>
+</div>
+<label>Durasi klip</label>
+<select id="ai-dur"><option value="2">2 detik (paling cepat)</option><option value="3">3 detik</option><option value="5">5 detik</option></select>
+<button class="btn-ok" id="ai-btn" onclick="makeAIVideo()">✨ Buat Video AI</button>
+<p class="mut" id="ai-status"></p>
+<video id="ai-preview" controls style="display:none"></video>
+<br><a id="ai-download" class="btn" style="display:none;text-decoration:none" download="video-ai.mp4">⬇ Download Video AI</a>
+</div>
+<div class="card">
+<h3>🎞️ Rakit Video 9:16 (slideshow zoom/pan + teks + narasi)</h3>
+<p class="mut">Video dirakit <b>di browsermu</b> (canvas + MediaRecorder, 720×1280). Gambar diberi efek zoom/pan halus + teks di tiap adegan. Opsi narasi: unggah file audio atau rekam suaramu. Prosesnya real-time: video 48 detik butuh waktu rakit ±48 detik.</p>
 <h3>1. Pilih gambar untuk timeline</h3>
 <p class="mut">Klik gambar di bawah untuk menambahkannya ke timeline (sesuai urutan klik).</p>
 <div class="grid" id="video-picker"></div>
@@ -150,7 +180,7 @@ ol.steps li{margin:8px 0 8px 20px}
 <li><b>Buka Bengkel AI.</b> Pakai alat <i>Ide</i> kalau bingung mau bikin video apa, <i>Naskah</i> untuk menulis naskah per adegan, dan <i>Judul</i> untuk judul yang menarik.</li>
 <li><b>Bikin prompt gambar &amp; video.</b> Aturannya: satu adegan, satu subjek. Jangan masukkan dua tokoh atau dua aksi dalam satu prompt — hasilnya sering berantakan.</li>
 <li><b>Generate gambar</b> di alat AI favoritmu (Gemini, ChatGPT, Leonardo, dsb.), lalu unggah hasilnya ke tab <i>Galeri</i> di sini.</li>
-<li><b>Klip gerak beneran</b> dibuat di luar studio: Google Flow (Veo), Hailuo, Seedance, atau DomoAI. Prompt videonya bisa dibikin dulu di Bengkel AI → alat <i>Prompt Video</i>. Video di dalam studio sendiri hanya zoom/pan gambar diam — bukan gerak AI sungguhan.</li>
+<li><b>Klip gerak beneran</b> sekarang bisa langsung di dalam studio: tab <i>Video</i> → kartu <i>Video AI Beneran</i>. Pilih gambar dari galeri, tulis prompt gerakannya, tekan <i>Buat Video AI</i> — AI (LTX) mengubah gambarmu jadi klip bergerak sungguhan. Prompt videonya bisa dibikin dulu di Bengkel AI → alat <i>Prompt Video</i>. Alternatif di luar studio tetap bisa: Google Flow (Veo), Hailuo, Seedance, DomoAI.</li>
 <li><b>Rakit video 9:16</b> di tab <i>Video</i>: pilih gambar sesuai urutan adegan, tambah teks tiap adegan, tambah narasi kalau mau, lalu tekan Rakit.</li>
 <li><b>Preview &amp; download.</b> Tonton dulu hasil rakitannya dari awal sampai akhir. Cek teks (ada yang kepotong?), cek urutan gambar. Kalau sudah oke, baru download.</li>
 </ol>
@@ -321,6 +351,7 @@ async function delImage(id){if(!confirm("Hapus gambar ini dari galeri?"))return;
 let timeline=[]; // {imgId, url, title, sub, dur}
 let narrAudioURL=null, micBlob=null, micRec=null, micChunks=[];
 async function renderVideoPicker(){
+  renderAIPicker();
   const el=$("video-picker");if(!el)return;
   const imgs=await idbAll();imgs.sort((a,b)=>b.createdAt-a.createdAt);
   if(!imgs.length){el.innerHTML='<p class="mut">Galeri kosong — tambah gambar dulu di tab Galeri.</p>';return}
@@ -436,6 +467,94 @@ async function toggleMicRecord(){
     micRec.onstop=()=>{micBlob=new Blob(micChunks,{type:micRec.mimeType||"audio/webm"});st.textContent="✅ Rekaman narasi siap dipakai ("+Math.round(micBlob.size/1024)+" KB).";s.getTracks().forEach(t=>t.stop())};
     micRec.start();btn.textContent="⏹ Berhenti merekam";st.textContent="🔴 Merekam… bicara sekarang.";
   }catch(e){st.textContent="Mic tidak bisa diakses: "+e.message}
+}
+/* ================= Video AI Beneran (LTX via Hugging Face) ================= */
+const LTX_SPACE="https://lightricks-ltx-video-distilled.hf.space";
+let aiSelectedImgId=null;
+function aiExample(t){$("ai-prompt").value=t}
+function aiModeChange(){$("ai-img-wrap").style.display=$("ai-mode").value==="text-to-video"?"none":"block"}
+async function renderAIPicker(){
+  const el=$("ai-picker");if(!el)return;
+  const imgs=await idbAll();imgs.sort((a,b)=>b.createdAt-a.createdAt);
+  if(!imgs.length){el.innerHTML='<p class="mut">Galeri kosong — unggah gambar di bawah atau di tab Galeri.</p>';return}
+  el.innerHTML="";
+  for(const im of imgs){
+    const url=URL.createObjectURL(im.blob);
+    const d=document.createElement("div");d.className="gitem"+(aiSelectedImgId===im.id?" sel":"");
+    d.innerHTML=`<img src="${url}" alt=""><div class="pad"><span class="mut">${esc(im.name||"gambar")}</span></div>`;
+    d.onclick=()=>{aiSelectedImgId=im.id;$("ai-upload").value="";renderAIPicker()};
+    el.appendChild(d);
+  }
+}
+async function ltxUpload(blob,name){
+  const fd=new FormData();fd.append("files",blob,name||"image.png");
+  const r=await fetch(LTX_SPACE+"/gradio_api/upload",{method:"POST",body:fd});
+  if(!r.ok)throw new Error("upload gagal (HTTP "+r.status+")");
+  const j=await r.json();return Array.isArray(j)?j[0]:j;
+}
+async function ltxCall(name,data,onStatus){
+  const jr=await fetch(LTX_SPACE+"/gradio_api/call/"+name,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data})});
+  if(!jr.ok)throw new Error("server AI menolak (HTTP "+jr.status+")");
+  const jj=await jr.json();const eventId=jj.event_id;
+  if(!eventId)throw new Error("server AI tidak memberi antrean");
+  const res=await fetch(LTX_SPACE+"/gradio_api/call/"+name+"/"+eventId);
+  if(!res.ok||!res.body)throw new Error("koneksi ke server AI gagal");
+  const reader=res.body.getReader();const dec=new TextDecoder();let buf="";
+  while(true){
+    const {done,value}=await reader.read();if(done)break;
+    buf+=dec.decode(value,{stream:true});
+    let idx;
+    while((idx=buf.indexOf("\n\n"))>=0){
+      const chunk=buf.slice(0,idx);buf=buf.slice(idx+2);
+      const lines=chunk.split("\n");
+      const ev=(lines.find(l=>l.startsWith("event:"))||"").slice(6).trim();
+      const dt=(lines.find(l=>l.startsWith("data:"))||"").slice(5).trim();
+      if(ev==="complete"){try{return JSON.parse(dt)}catch(e){return dt}}
+      if(ev==="error")throw new Error(dt&&dt!=="null"?dt:"server AI error");
+      if(onStatus&&ev)onStatus(ev,dt);
+    }
+  }
+  throw new Error("koneksi terputus sebelum video selesai");
+}
+async function makeAIVideo(){
+  const btn=$("ai-btn"),st=$("ai-status"),prev=$("ai-preview"),dl=$("ai-download");
+  const mode=$("ai-mode").value;
+  const prompt=$("ai-prompt").value.trim()||"the subject starts to move naturally, smooth cinematic motion";
+  const dur=parseInt($("ai-dur").value)||2;
+  const neg="worst quality, inconsistent motion, blurry, jittery, distorted";
+  btn.disabled=true;prev.style.display="none";dl.style.display="none";
+  const t0=Date.now();
+  const tick=s=>{st.textContent=s+" ("+Math.round((Date.now()-t0)/1000)+" dtk)"};
+  try{
+    let imgFile=null,H=704,W=512;
+    if(mode==="image-to-video"){
+      let blob=null,name="image.png";
+      const up=$("ai-upload").files[0];
+      if(up){blob=up;name=up.name}
+      else if(aiSelectedImgId){const im=await idbGet(aiSelectedImgId);if(im){blob=im.blob;name=im.name||name}}
+      if(!blob){st.textContent="Pilih dulu gambarnya (klik gambar di atas atau unggah).";btn.disabled=false;return}
+      tick("Mengunggah gambar ke server AI…");
+      const path=await ltxUpload(blob,name);
+      imgFile={path,meta:{_type:"gradio.FileData"}};
+      tick("Menghitung ukuran video…");
+      try{const dims=await ltxCall("handle_image_upload_for_dims",[imgFile,512,704],null);if(Array.isArray(dims)&&dims.length>=2){const hv=(dims[0]&&typeof dims[0]==="object")?dims[0].value:dims[0];const wv=(dims[1]&&typeof dims[1]==="object")?dims[1].value:dims[1];if(hv&&wv){H=hv;W=wv}}}catch(e){/* pakai ukuran default */}
+    }
+    tick("AI sedang membuat videomu…");
+    const out=await ltxCall(mode,[prompt,neg,imgFile,null,H,W,mode,dur,9,42,true,1,true],(ev,dt)=>{
+      if(ev==="estimation")tick("Masuk antrean server AI…");
+      if(ev==="process_starts")tick("AI sedang membuat videomu…");
+      if(ev==="progress")tick("AI sedang membuat videomu…");
+    });
+    const vid=Array.isArray(out)?out[0]:out;
+    const vurl=(vid&&(vid.url||(vid.path?LTX_SPACE+"/gradio_api/file="+vid.path:null)));
+    if(!vurl)throw new Error("video tidak ditemukan di hasil server");
+    prev.src=vurl;prev.style.display="block";
+    dl.href=vurl;dl.style.display="inline-block";
+    st.textContent="✅ Video AI jadi dalam "+Math.round((Date.now()-t0)/1000)+" detik! Tonton preview di atas, lalu download. Klip ini bisa langsung dipakai jadi Shorts atau bahan rakitan.";
+  }catch(e){
+    st.textContent="⚠️ Gagal: "+e.message+". Kemungkinan kuota gratis server AI habis atau server lagi sibuk — tunggu sebentar lalu coba lagi (kuota reset tiap hari).";
+  }
+  btn.disabled=false;
 }
 /* ================= Init ================= */
 renderProjects();renderToolHistory();
