@@ -130,6 +130,9 @@ ol.steps li{margin:8px 0 8px 20px}
 <option value="wan">🎨 Wan 2.2 — kualitas gerakan bagus (gambar → video)</option>
 <option value="cog">🎬 CogVideoX — gambar/teks → video</option>
 </select>
+<label>Token Hugging Face (opsional — kuota GPU lebih besar)</label>
+<input type="password" id="ai-token" placeholder="hf_... (kosongkan = mode tamu, kuota kecil)" oninput="LS.set('acs.hfToken',this.value.trim())">
+<p class="mut">Tanpa token: kuota tamu kecil. Dengan token akun Hugging Face gratis: kuota GPU jauh lebih besar. Token hanya tersimpan di browser perangkatmu. Buat token gratis di huggingface.co → Settings → Access Tokens.</p>
 <label>Mode</label>
 <select id="ai-mode" onchange="aiModeChange()">
 <option value="image-to-video">🖼️ Gambar → Video (gambar dari galeri jadi bergerak)</option>
@@ -498,18 +501,22 @@ async function renderAIPicker(){
     el.appendChild(d);
   }
 }
+function aiAuthHeaders(){
+  const t=($("ai-token")?$("ai-token").value.trim():"")||LS.get("acs.hfToken","");
+  return t?{Authorization:"Bearer "+t}:{};
+}
 async function spaceUpload(space,blob,name){
   const fd=new FormData();fd.append("files",blob,name||"image.png");
-  const r=await fetch(space+"/gradio_api/upload",{method:"POST",body:fd});
+  const r=await fetch(space+"/gradio_api/upload",{method:"POST",body:fd,headers:aiAuthHeaders()});
   if(!r.ok)throw new Error("upload gagal (HTTP "+r.status+")");
   const j=await r.json();return Array.isArray(j)?j[0]:j;
 }
 async function spaceCall(space,name,data,onStatus){
-  const jr=await fetch(space+"/gradio_api/call/"+name,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data})});
+  const jr=await fetch(space+"/gradio_api/call/"+name,{method:"POST",headers:{"Content-Type":"application/json",...aiAuthHeaders()},body:JSON.stringify({data})});
   if(!jr.ok)throw new Error("server AI menolak (HTTP "+jr.status+")");
   const jj=await jr.json();const eventId=jj.event_id;
   if(!eventId)throw new Error("server AI tidak memberi antrean");
-  const res=await fetch(space+"/gradio_api/call/"+name+"/"+eventId);
+  const res=await fetch(space+"/gradio_api/call/"+name+"/"+eventId,{headers:aiAuthHeaders()});
   if(!res.ok||!res.body)throw new Error("koneksi ke server AI gagal");
   const reader=res.body.getReader();const dec=new TextDecoder();let buf="";
   while(true){
@@ -606,6 +613,7 @@ async function makeAIVideo(){
   btn.disabled=false;
 }
 /* ================= Init ================= */
+if($("ai-token"))$("ai-token").value=LS.get("acs.hfToken","");
 renderProjects();renderToolHistory();
 </script>
 </body>
