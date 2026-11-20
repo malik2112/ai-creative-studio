@@ -122,7 +122,14 @@ ol.steps li{margin:8px 0 8px 20px}
 <h2>Video AI Beneran + Rakit Video 9:16</h2>
 <div class="card">
 <h3>✨ Video AI Beneran — gambar jadi bergerak sungguhan</h3>
-<p class="mut">Fitur ini memanggil layanan AI video gratis (LTX di Hugging Face) langsung dari browsermu: gambarmu diubah jadi klip bergerak nyata (±2–5 detik), bukan zoom/pan. Butuh internet, prosesnya ±30–90 detik, dan ada kuota gratis harian dari layanannya — kalau kuota habis, coba lagi besok.</p>
+<p class="mut">Fitur ini memanggil layanan AI video gratis (LTX, Wan 2.2, CogVideoX di Hugging Face) langsung dari browsermu: gambarmu diubah jadi klip bergerak nyata (±2–6 detik), bukan zoom/pan. Mode <b>Otomatis</b> mencoba semua mesin satu per satu sampai ada yang berhasil. Butuh internet, prosesnya ±30–180 detik, dan ada kuota gratis harian dari layanannya — kalau kuota habis, coba lagi besok.</p>
+<label>Mesin AI</label>
+<select id="ai-engine">
+<option value="auto">🤖 Otomatis — coba semua mesin sampai berhasil (disarankan)</option>
+<option value="ltx">⚡ LTX — paling cepat</option>
+<option value="wan">🎨 Wan 2.2 — kualitas gerakan bagus (gambar → video)</option>
+<option value="cog">🎬 CogVideoX — gambar/teks → video</option>
+</select>
 <label>Mode</label>
 <select id="ai-mode" onchange="aiModeChange()">
 <option value="image-to-video">🖼️ Gambar → Video (gambar dari galeri jadi bergerak)</option>
@@ -468,8 +475,13 @@ async function toggleMicRecord(){
     micRec.start();btn.textContent="⏹ Berhenti merekam";st.textContent="🔴 Merekam… bicara sekarang.";
   }catch(e){st.textContent="Mic tidak bisa diakses: "+e.message}
 }
-/* ================= Video AI Beneran (LTX via Hugging Face) ================= */
-const LTX_SPACE="https://lightricks-ltx-video-distilled.hf.space";
+/* ================= Video AI Beneran (multi-mesin via Hugging Face) ================= */
+const SPACES={
+  ltx:"https://lightricks-ltx-video-distilled.hf.space",
+  wan:"https://saravutw-wan2-2-i2v-lightning-4-8step-custom.hf.space",
+  cog:"https://zai-org-cogvideox-5b-space.hf.space"
+};
+const AI_NEG="worst quality, inconsistent motion, blurry, jittery, distorted, watermark";
 let aiSelectedImgId=null;
 function aiExample(t){$("ai-prompt").value=t}
 function aiModeChange(){$("ai-img-wrap").style.display=$("ai-mode").value==="text-to-video"?"none":"block"}
@@ -486,18 +498,18 @@ async function renderAIPicker(){
     el.appendChild(d);
   }
 }
-async function ltxUpload(blob,name){
+async function spaceUpload(space,blob,name){
   const fd=new FormData();fd.append("files",blob,name||"image.png");
-  const r=await fetch(LTX_SPACE+"/gradio_api/upload",{method:"POST",body:fd});
+  const r=await fetch(space+"/gradio_api/upload",{method:"POST",body:fd});
   if(!r.ok)throw new Error("upload gagal (HTTP "+r.status+")");
   const j=await r.json();return Array.isArray(j)?j[0]:j;
 }
-async function ltxCall(name,data,onStatus){
-  const jr=await fetch(LTX_SPACE+"/gradio_api/call/"+name,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data})});
+async function spaceCall(space,name,data,onStatus){
+  const jr=await fetch(space+"/gradio_api/call/"+name,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({data})});
   if(!jr.ok)throw new Error("server AI menolak (HTTP "+jr.status+")");
   const jj=await jr.json();const eventId=jj.event_id;
   if(!eventId)throw new Error("server AI tidak memberi antrean");
-  const res=await fetch(LTX_SPACE+"/gradio_api/call/"+name+"/"+eventId);
+  const res=await fetch(space+"/gradio_api/call/"+name+"/"+eventId);
   if(!res.ok||!res.body)throw new Error("koneksi ke server AI gagal");
   const reader=res.body.getReader();const dec=new TextDecoder();let buf="";
   while(true){
@@ -510,50 +522,87 @@ async function ltxCall(name,data,onStatus){
       const ev=(lines.find(l=>l.startsWith("event:"))||"").slice(6).trim();
       const dt=(lines.find(l=>l.startsWith("data:"))||"").slice(5).trim();
       if(ev==="complete"){try{return JSON.parse(dt)}catch(e){return dt}}
-      if(ev==="error")throw new Error(dt&&dt!=="null"?dt:"server AI error");
+      if(ev==="error")throw new Error(dt&&dt!=="null"?dt:"server AI error / kuota habis");
       if(onStatus&&ev)onStatus(ev,dt);
     }
   }
   throw new Error("koneksi terputus sebelum video selesai");
 }
+function vidURL(space,vid){
+  if(!vid)return null;
+  if(typeof vid==="string")return vid.startsWith("http")?vid:space+"/gradio_api/file="+vid;
+  return vid.url||(vid.path?space+"/gradio_api/file="+vid.path:null);
+}
+async function runLTX(mode,prompt,blob,name,dur,tick){
+  const S=SPACES.ltx;let imgFile=null,H=704,W=512;
+  if(mode==="image-to-video"){
+    tick("LTX: mengunggah gambar…");
+    const path=await spaceUpload(S,blob,name);
+    imgFile={path,meta:{_type:"gradio.FileData"}};
+    try{const dims=await spaceCall(S,"handle_image_upload_for_dims",[imgFile,512,704],null);if(Array.isArray(dims)&&dims.length>=2){const hv=(dims[0]&&typeof dims[0]==="object")?dims[0].value:dims[0];const wv=(dims[1]&&typeof dims[1]==="object")?dims[1].value:dims[1];if(hv&&wv){H=hv;W=wv}}}catch(e){/* ukuran default */}
+  }
+  tick("LTX: AI membuat video…");
+  const out=await spaceCall(S,mode,[prompt,AI_NEG,imgFile,null,H,W,mode,dur,9,42,true,1,true],(ev)=>{if(ev==="estimation")tick("LTX: masuk antrean…");if(ev==="process_starts"||ev==="progress")tick("LTX: AI membuat video…")});
+  const u=vidURL(S,Array.isArray(out)?out[0]:out);if(!u)throw new Error("hasil video kosong");return u;
+}
+async function runWan(prompt,blob,name,dur,tick){
+  const S=SPACES.wan;
+  tick("Wan 2.2: mengunggah gambar…");
+  const path=await spaceUpload(S,blob,name);
+  const imgFile={path,meta:{_type:"gradio.FileData"}};
+  tick("Wan 2.2: AI membuat video…");
+  const out=await spaceCall(S,"generate_video",[imgFile,null,prompt,4,"blurry, low quality, chaotic, deformed, watermark, bad anatomy, shaky camera view point",dur,1,1,42,true,5,"UniPCMultistep",3.0,16,false,true],(ev)=>{if(ev==="estimation")tick("Wan 2.2: masuk antrean…");if(ev==="process_starts"||ev==="progress")tick("Wan 2.2: AI membuat video…")});
+  const u=vidURL(S,Array.isArray(out)?out[0]:out);if(!u)throw new Error("hasil video kosong");return u;
+}
+async function runCog(mode,prompt,blob,name,tick){
+  const S=SPACES.cog;let imgFile=null;
+  if(mode==="image-to-video"){
+    tick("CogVideoX: mengunggah gambar…");
+    const path=await spaceUpload(S,blob,name);
+    imgFile={path,meta:{_type:"gradio.FileData"}};
+  }
+  tick("CogVideoX: AI membuat video…");
+  const out=await spaceCall(S,"generate",[prompt,imgFile,null,0.8,-1,false,false],(ev)=>{if(ev==="estimation")tick("CogVideoX: masuk antrean…");if(ev==="process_starts"||ev==="progress")tick("CogVideoX: AI membuat video…")});
+  const u=vidURL(S,Array.isArray(out)?out[0]:out);if(!u)throw new Error("hasil video kosong");return u;
+}
 async function makeAIVideo(){
   const btn=$("ai-btn"),st=$("ai-status"),prev=$("ai-preview"),dl=$("ai-download");
-  const mode=$("ai-mode").value;
+  const mode=$("ai-mode").value,engine=$("ai-engine").value;
   const prompt=$("ai-prompt").value.trim()||"the subject starts to move naturally, smooth cinematic motion";
   const dur=parseInt($("ai-dur").value)||2;
-  const neg="worst quality, inconsistent motion, blurry, jittery, distorted";
+  let blob=null,name="image.png";
+  if(mode==="image-to-video"){
+    const up=$("ai-upload").files[0];
+    if(up){blob=up;name=up.name}
+    else if(aiSelectedImgId){const im=await idbGet(aiSelectedImgId);if(im){blob=im.blob;name=im.name||name}}
+    if(!blob){st.textContent="Pilih dulu gambarnya (klik gambar di atas atau unggah).";return}
+  }
   btn.disabled=true;prev.style.display="none";dl.style.display="none";
   const t0=Date.now();
   const tick=s=>{st.textContent=s+" ("+Math.round((Date.now()-t0)/1000)+" dtk)"};
-  try{
-    let imgFile=null,H=704,W=512;
-    if(mode==="image-to-video"){
-      let blob=null,name="image.png";
-      const up=$("ai-upload").files[0];
-      if(up){blob=up;name=up.name}
-      else if(aiSelectedImgId){const im=await idbGet(aiSelectedImgId);if(im){blob=im.blob;name=im.name||name}}
-      if(!blob){st.textContent="Pilih dulu gambarnya (klik gambar di atas atau unggah).";btn.disabled=false;return}
-      tick("Mengunggah gambar ke server AI…");
-      const path=await ltxUpload(blob,name);
-      imgFile={path,meta:{_type:"gradio.FileData"}};
-      tick("Menghitung ukuran video…");
-      try{const dims=await ltxCall("handle_image_upload_for_dims",[imgFile,512,704],null);if(Array.isArray(dims)&&dims.length>=2){const hv=(dims[0]&&typeof dims[0]==="object")?dims[0].value:dims[0];const wv=(dims[1]&&typeof dims[1]==="object")?dims[1].value:dims[1];if(hv&&wv){H=hv;W=wv}}}catch(e){/* pakai ukuran default */}
+  const runners={
+    ltx:()=>runLTX(mode,prompt,blob,name,dur,tick),
+    wan:()=>runWan(prompt,blob,name,dur,tick),
+    cog:()=>runCog(mode,prompt,blob,name,tick)
+  };
+  let order=[];
+  if(engine==="auto")order=mode==="image-to-video"?["ltx","wan","cog"]:["ltx","cog"];
+  else order=[engine];
+  if(engine==="wan"&&mode!=="image-to-video"){st.textContent="Mesin Wan 2.2 hanya untuk mode Gambar → Video. Ganti mode atau pilih Otomatis.";btn.disabled=false;return}
+  const errs=[];
+  for(const eng of order){
+    try{
+      const u=await runners[eng]();
+      prev.src=u;prev.style.display="block";
+      dl.href=u;dl.style.display="inline-block";
+      st.textContent="✅ Video AI jadi ("+eng.toUpperCase()+", "+Math.round((Date.now()-t0)/1000)+" detik)! Tonton preview di atas, lalu download. Klip ini bisa langsung dipakai jadi Shorts atau bahan rakitan.";
+      btn.disabled=false;return;
+    }catch(e){
+      errs.push(eng.toUpperCase()+": "+e.message);
+      if(order.length>1)tick(eng.toUpperCase()+" gagal, mencoba mesin berikutnya…");
     }
-    tick("AI sedang membuat videomu…");
-    const out=await ltxCall(mode,[prompt,neg,imgFile,null,H,W,mode,dur,9,42,true,1,true],(ev,dt)=>{
-      if(ev==="estimation")tick("Masuk antrean server AI…");
-      if(ev==="process_starts")tick("AI sedang membuat videomu…");
-      if(ev==="progress")tick("AI sedang membuat videomu…");
-    });
-    const vid=Array.isArray(out)?out[0]:out;
-    const vurl=(vid&&(vid.url||(vid.path?LTX_SPACE+"/gradio_api/file="+vid.path:null)));
-    if(!vurl)throw new Error("video tidak ditemukan di hasil server");
-    prev.src=vurl;prev.style.display="block";
-    dl.href=vurl;dl.style.display="inline-block";
-    st.textContent="✅ Video AI jadi dalam "+Math.round((Date.now()-t0)/1000)+" detik! Tonton preview di atas, lalu download. Klip ini bisa langsung dipakai jadi Shorts atau bahan rakitan.";
-  }catch(e){
-    st.textContent="⚠️ Gagal: "+e.message+". Kemungkinan kuota gratis server AI habis atau server lagi sibuk — tunggu sebentar lalu coba lagi (kuota reset tiap hari).";
   }
+  st.textContent="⚠️ Semua mesin gagal — "+errs.join(" · ")+". Kemungkinan kuota gratis harian habis atau server sibuk. Tunggu sebentar lalu coba lagi (kuota reset tiap hari).";
   btn.disabled=false;
 }
 /* ================= Init ================= */
